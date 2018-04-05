@@ -1,0 +1,116 @@
+mongo "mongodb://m123-rs1-shard-00-00-glprg.mongodb.net:27017,m123-rs1-shard-00-01-glprg.mongodb.net:27017,m123-rs1-shard-00-02-glprg.mongodb.net:27017/test?replicaSet=m123-rs1-shard-0" --ssl --authenticationDatabase admin --username khylo --password <PASSWORD>
+
+mongo "mongodb://cluster0-shard-00-00-jxeqq.mongodb.net:27017,cluster0-shard-00-01-jxeqq.mongodb.net:27017,cluster0-shard-00-02-jxeqq.mongodb.net:27017/test?replicaSet=Cluster0-shard-0" --authenticationDatabase admin --ssl --username m001-student --password m001-mongodb-basics
+
+mongorestore --drop --host $hostname --port 37017 --authenticationDatabase $authdb --ssl --username $username --gzip --password $password --dir mongodump-people-signup-score
+
+Local Import
+	mongoimport --db capc --collection RegisteredUser --drop --file ./jobs/data/users.json --jsonArray
+	
+	mongoimport --drop -d students -c grades grades.json
+	
+	
+	mongorestore (restore from mongodump)
+	
+Loopback.
+	look in server/datasources.json for db config. e.g.g mongo
+	
+CopyCollection
+	from within mongod
+		db.myoriginal.aggregate([ { $match: {} }, { $out: "mycopy" } ])
+		db.movieDetails.aggregate([ { $match: {} }, { $out: "movie2" } ]) 
+		
+	from command line
+		mongodump -d db -c sourcecollection 
+		mongorestore -d db -c targetcollection --dir=dump/<db>/<sourcecollection.bson>
+
+find
+	db.<collection>.find(<query>, [projection]).sort()
+		query = { $<Operator(s)>  $gt, $lt, $gte, $in
+				And used by default.
+			db.inventory.find( { status: "A", qty: { $lt: 30 } } )
+			
+		Projections used to specify columns, This only returns _id and name
+			coll = db.users; // example of shortcut using variables
+			coll.find( { }, { name: true } )
+		
+		for or use
+			db.inventory.find( { $or: [ { status: "A" }, { qty: { $lt: 30 } } ] } )
+			
+			
+		//Find countries with 2nd name Sweden
+		db.movieDetails.find({'countries':'Sweden'}).count()
+		
+		**Note if you are filtering on 2 values of one field then be careful
+		**Wrong
+		db.movie2.find({"imdb.votes":{"$lt":10000}, "year":{"$lte":2013}, "year":{"$gte":2010}},{title:1, year:1, _id:0, "imdb.votes":1})
+		This will only filter on year gte 2010 since it overrides the 2013
+		**Right
+		db.movie2.find({"imdb.votes":{"$lt":10000}, "year":{"$lte":2013, "$gte":2010}},{title:1, year:1, _id:0, "imdb.votes":1})
+
+	Sort
+		db.grades.find({type : "homework"}).sort({'student_id':1, score:1})  sort by student, then score after filtering only homework 'type'
+		db.grades.find( { }, { 'student_id' : 1, 'type' : 1, 'score' : 1, '_id' : 0 } ).sort( { 'student_id' : 1, 'score' : 1 } ).limit( 5 )
+
+	db.movieDetails.findOne
+	or
+	db.movieDetails.find
+	Array
+		Query family in list of genres
+		> db.movieDetails.find({"genres":"Family"}).count()
+		124
+		Query family in 2nd position..
+		> db.movieDetails.find({"genres.1":"Family"}).count()
+		58
+		
+	Q. 2.7 (extra non homework)
+		db.createCollection("testMovie")		
+		db.testMovie.insert( [ {  some test film output from movieDetails, and change awards }])
+		db.testMovie.find({"awards.oscars.award":{$eq:"bestPicture"}}).count()
+		
+		
+		
+	Aggregation
+			db.grades.aggregate([{'$group':{'_id':'$student_id', 'average':{$avg:'$score'}}}, 
+									{'$sort':{'average':-1}}, {'$limit':1}])	
+		
+		
+	Assignment
+		var myDoc = db.movieDetails.find({"imdb.id":"tt4368814"})
+
+update.
+	updateOne
+	updateMany
+
+	upsert
+
+	> db.movieDetails.updateOne({title:"MyTestFilm"},{$set:{"title" :"MyTestFilm", "year" : 1982, "rated" : "PG", "runtime" : 113, "countries" : [ "USA" ], "genres" : [ "Action", "Adventure", "Drama" ], "director" : "Nicholas Meyer", "writers" : [ "Gene Roddenberry", "Harve Bennett", "Jack B. Sowards", "Jack B. Sowards" ], "actors" : [ "William Shatner", "Leonard Nimoy", "DeForest Kelley", "James Doohan" ], "plot" : "With the assistance of the Enterprise crew, Admiral Kirk must stop an old nemesis, Khan Noonien Singh, from using the life-generating Genesis Device as the ultimate weapon.","imdb" : { "id" : "tt0084726", "rating" : 7.7, "votes" : 86687 }, "metacritic" : 71, "awards" : { "wins" : 2, "nominations" : 9, "text" : "2 wins & 9 nominations." }, "type" : "movie" }},{upsert:true})
+	
+	$push - adds items in the order in which they were received. Also you can add same items several times
+	$addToSet - adds just unique items, but order of items is not guarantied
+	
+Replace
+	ReplaceOne
+	replaceMany
+	
+Delete
+	deleteOne
+	deleteMany
+	
+	
+	Scaling Horizintally. Sharded clusters
+	
+		mongos (routeres).. used for handling sharded clusters. Which is multiple replica sets (up to 12 at time of writing).
+		when connecting to a mongos router.
+			db.mongos.find({},  {_id:1})
+			sh.status()
+			sh.enableSharding("Test") // enable partiition is now true
+			
+		create shard key
+			One per collection.. can't be changed once its in place
+			https://docs.mongodb.com/manual/tutorial/choose-a-shard-key/?_ga=2.220197530.2030665551.1512995876-1430811341.1509531785
+		
+	
+	Scaling veritically. 
+		Rebuilds each component one by one.  to more powerful servers. e.g. moving from M10 cluster to M60 cluster.
+	
