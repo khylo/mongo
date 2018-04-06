@@ -26,6 +26,7 @@ CopyCollection
 
 find
 	db.<collection>.find(<query>, [projection]).sort()
+	Bote can also append .explain() at end of query to get explainPlan
 		query = { $<Operator(s)>  $gt, $lt, $gte, $in
 				And used by default.
 			db.inventory.find( { status: "A", qty: { $lt: 30 } } )
@@ -36,6 +37,7 @@ find
 		
 		for or use
 			db.inventory.find( { $or: [ { status: "A" }, { qty: { $lt: 30 } } ] } )
+			db.inventory.find( { $or: [ { status: "A" }, { qty: { $lt: 30 } } ] } ).explain()
 			
 			
 		//Find countries with 2nd name Sweden
@@ -51,6 +53,14 @@ find
 	Sort
 		db.grades.find({type : "homework"}).sort({'student_id':1, score:1})  sort by student, then score after filtering only homework 'type'
 		db.grades.find( { }, { 'student_id' : 1, 'type' : 1, 'score' : 1, '_id' : 0 } ).sort( { 'student_id' : 1, 'score' : 1 } ).limit( 5 )
+		
+		
+	Index
+		db.student.ensureIndex({'teachers':1})
+		
+		verify
+			db.students.find({'teachers':{$all:[0,1]}}).explain()
+				uses BtreeCursor Index for lookup
 
 	db.movieDetails.findOne
 	or

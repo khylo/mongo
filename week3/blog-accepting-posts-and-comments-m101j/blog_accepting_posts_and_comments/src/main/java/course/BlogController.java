@@ -149,6 +149,8 @@ public class BlogController {
 
                     root.put("post", post);
                     root.put("comments", newComment);
+                    
+                    System.out.println("Comments "+root);
 
                     template.process(root, writer);
                 }

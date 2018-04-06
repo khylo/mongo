@@ -2,8 +2,15 @@ package course;
 
 import com.mongodb.client.MongoCollection;
 import com.mongodb.client.MongoDatabase;
-import org.bson.Document;
+import com.mongodb.client.model.Filters;
+import com.mongodb.client.model.Sorts;
+import com.mongodb.client.model.Updates;
 
+import org.bson.Document;
+import org.bson.conversions.Bson;
+
+import java.util.ArrayList;
+import java.util.Date;
 import java.util.List;
 
 public class BlogPostDAO {
@@ -18,6 +25,8 @@ public class BlogPostDAO {
 
         // XXX HW 3.2,  Work Here
         Document post = null;
+        Bson filter = Filters.eq("permalink", permalink);
+        post = postsCollection.find(filter).first();
 
 
 
@@ -30,7 +39,9 @@ public class BlogPostDAO {
 
         // XXX HW 3.2,  Work Here
         // Return a list of DBObjects, each one a post from the posts collection
-        List<Document> posts = null;
+    	Bson sort = Sorts.descending("date");
+    	List<Document> posts = postsCollection.find().sort(sort).into(new ArrayList<Document>());
+        
 
         return posts;
     }
@@ -56,8 +67,15 @@ public class BlogPostDAO {
         // - we created the permalink for you above.
 
         // Build the post object and insert it
-        Document post = new Document();
+        Document post = new Document("title", title)
+        		.append("body", body)
+        		.append("author", username)
+        		.append("tags", tags)
+        		.append("comments", new ArrayList<String>())
+        		.append("permalink", permalink)
+        		.append("date", new Date());
 
+        postsCollection.insertOne(post);
 
         return permalink;
     }
@@ -83,5 +101,18 @@ public class BlogPostDAO {
         // - email is optional and may come in NULL. Check for that.
         // - best solution uses an update command to the database and a suitable
         //   operator to append the comment on to any existing list of comments
+    	
+    	//Lookup post
+    	Document comment = new Document("author", name)
+    			.append("body",body);
+    	
+    	if(email!=null && !email.isEmpty()) {
+    		comment.append("email", email);
+    	}
+    	
+    	Bson filter = Filters.eq("permalink", permalink);
+    	Bson update = Updates.addToSet("comments", comment);
+    	
+    	postsCollection.updateOne(filter, update);
     }
 }
