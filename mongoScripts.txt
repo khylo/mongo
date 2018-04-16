@@ -12,6 +12,10 @@ Local Import
 	
 	mongorestore (restore from mongodump)
 	
+	mongotop  // top runnign jobs in monfo
+	
+	mongostat    / /statistics.. inserts queries updates or deletes
+	
 Loopback.
 	look in server/datasources.json for db config. e.g.g mongo
 	
@@ -23,10 +27,14 @@ CopyCollection
 	from command line
 		mongodump -d db -c sourcecollection 
 		mongorestore -d db -c targetcollection --dir=dump/<db>/<sourcecollection.bson>
+		
+		db.collection.help().. show all commands
 
 find
+*Mongod will by default log slow queries. So shoudl set some automation up to find these in the logs and notify.*
+
 	db.<collection>.find(<query>, [projection]).sort()
-	Bote can also append .explain() at end of query to get explainPlan
+	Note can also append .explain() at end of query to get explainPlan
 		query = { $<Operator(s)>  $gt, $lt, $gte, $in
 				And used by default.
 			db.inventory.find( { status: "A", qty: { $lt: 30 } } )
@@ -38,7 +46,12 @@ find
 		for or use
 			db.inventory.find( { $or: [ { status: "A" }, { qty: { $lt: 30 } } ] } )
 			db.inventory.find( { $or: [ { status: "A" }, { qty: { $lt: 30 } } ] } ).explain()
+		
+		Text find				
+			db.product.find({$text:{$search: "My search string"}))
 			
+			Text find ORs search strings together so may give us unexpected results, so shoudl use
+			db.product.find({$text:{$search: "My search string"}, {"score":{$meta:"textScore"}}).sort({score:{$meta:"TextScore"}})
 			
 		//Find countries with 2nd name Sweden
 		db.movieDetails.find({'countries':'Sweden'}).count()
@@ -56,12 +69,50 @@ find
 		
 		
 	Index
-		db.student.ensureIndex({'teachers':1})
+	
+		List
+			db.stiudents.getIndexes();
+		Delete	use key from list above
+			db.students.dropIndex({'student_id':1}) // Can't delete _id
+			
+		Create
+			db.student.ensureIndex({'teachers':1})
+			
+			db.student.createIndex({'teachers':1, 'class':-1})
+			db.student.createIndex({'teachers':1, 'class':-1}, {unique:true})  // Can enforce unique/distinct values. Dupicate will cause error  Do getIndexes() to see if unique or not (_id is anomoly)
 		
 		verify
-			db.students.find({'teachers':{$all:[0,1]}}).explain()
+			db.students.explain().find({'teachers':{$all:[0,1]}})   
+			
+			Can put explain(true) to run query and get more info
 				uses BtreeCursor Index for lookup
+				
+		for compound index
+			e.g. surname, firstname, dob
+				we can use this compound index to lookup on surname alone, then do full table scan for DOB
+				but we can't lookup DOB o9r firstname alone. 
+				
+			Adding indexes makes writes slower. Pattern. Before large insert have no indexes. Add indexes after large write.
 
+		MultiKey Index (e.g. on array)
+			Can't have index on more than 1 field is array
+			db.foo.createIndex( { a:1, b:1 } )
+			
+			but can create for 1 array per document 					
+					Index expands all entries in collection to index, and maps them to other values in the index
+					e.g.
+						{a: 1, b:[1,2,3]}   ok
+						{a:[2,3], b:5}		ok
+						{a:[2,3], b:[5,4]}  Not Ok.. 2 arrays for field with index
+						
+					
+			So if we add elements and make some fields arrays this may break indexes
+			
+		For indices subelements use dot notation, 
+		
+			db.people.createIndex({'work_history.company':-1})
+			
+			
 	db.movieDetails.findOne
 	or
 	db.movieDetails.find
@@ -124,3 +175,113 @@ Delete
 	Scaling veritically. 
 		Rebuilds each component one by one.  to more powerful servers. e.g. moving from M10 cluster to M60 cluster.
 	
+	
+
+	
+***
+Performance	 .. https://university.mongodb.com/mercury/M201
+***
+
+	in Memory actions
+		aggregation/ index traversing / write operations/ query engine / connections
+		
+	Hardware	
+		
+		Recommend RAID 10    (do not recommend RaID 0 / 5 /6  reduced performace)
+					raid 10		=     raid 0
+							   raid 1			raid 1
+							   
+		Can use multiple Disks. .allows IO load to be distributed and parallelized
+		
+		Wired Tiger is more CPU intensive but is the future
+		
+		
+		mongod --directtoryperdb   this creates dir per db
+			Allows these to be symbolic links and have these mapped to different drives since this can increase parallelism
+			
+	Indexes
+	
+		Single Field Index
+			db.people.createIndex({'ssn':1})
+			
+			Dont create index on sub document. Instead use dot notation to specify an elemnt of subDocument. Indexing on Docuemnt ineffefient if its a big Document
+			
+		Compount Index
+			On multiple fields.   
+			Rule of thumb
+				Equality field before sort field before range field
+			
+			
+		MultiKey Index e.g. on Arrays.. Creates Index key for each element in array. Be careful if using large arrays
+			Can't use compund fields where more than one field is an array (per document)
+			
+		Text Index	  Pass in text keyword to help avoid collection scan. Creates index for every unique word in string. (spaces and hypens are tokenizer)
+			db.product.createIndex({productName:"text"})  
+			
+			for searching use
+			db.product.find({$text:{$search: "My search string"}))
+		
+		Partial Index .. used to save space if it makes sense. .Partial Index preferred over sparse
+		 (General case of Sparse Index).. Can't have both sparse and Partil Key
+			Can't have shard index as partial index
+		 Be careful.. Find predicate must match partial index
+		 // rerun the query (doesn't use the partial index) see performance/parial_index.js examples
+			db.restaurants.find({'address.city': 'New York', 'cuisine': 'Sichuan'})
+
+			// adding the stars predicate allows us to use the partial index
+			exp.find({'address.city': 'New York', cuisine: 'Sichuan', stars: { $gt: 4.0 }})
+	Explains
+		Can create Explainable Object e.g.
+			exp=db.people.explain("executionStats")  attche explain to collection so it gets run every time
+		db.people.find({'ssn':"720-38-5636"}).explain("executionStats")
+		
+	Collations  See performance\collations.js   
+		Language Specific rules for text searches
+		
+		locale, caseLevel, caseFirst, strength, numericOrdering, alternate, maxvarialbe, backwards
+		Allows locales, case insentive (strength:1) searches
+		Collation appears in explain results
+		Can create Indexes for individual collations, e.g. en or pt, or it
+		
+		db.createCollection( "foreign_text", {collation: {locale: "pt"}})
+		// insert an example document
+		db.foreign_text.insert({ "name": "Máximo", "text": "Bom dia minha gente!"})
+		// explain the following query (uses the Portuguese collation)
+		db.foreign_text.find({ _id: {$exists:1 } } ).explain()
+	
+	
+Profiling	have mongod log to db.system.profile
+	mongod --profile [level] [--slowms 2]
+	level
+	0 default .. no logging
+	1 log slow queries (can spcify --slowms )
+	2 log all queries (maybe for dev)
+	
+	from mongo shell
+	db.getProfilingLevel(	)
+	db.setProfilingLevel(2)
+	db.getProfilingStatus(	)
+	db.setProfilingStatus(1,4) 		// Level 1:  4 ms
+	
+	Can then query profile table 
+	 db.system.profile.find( { millis : { $gt:1000 } } ).sort( { ts : -1 } )
+	
+	Homework
+		Lab 2.1 got wrong. 
+		Heres what I think is the right answer now (* marks where index used for both search and sort)
+			When you see SORT_KEY_GENERATOR that is not using Index I believe
+		
+		var exp = db.people.explain("executionStats")
+		exp.find({ "address.city": "West Cindy"}).sort({"address.city":-1})
+		exp.find({ "first_name": "Jessica", "address.state": { $lt: "S"}}).sort({"address.city":1})
+		*exp.find({ "address.state": "South Dakota", "first_name": "Jessica"}).sort({"address.city":-1})
+		*exp.find({ "first_name": "Jessica"}).sort({"address.state":1,"address.city":1})
+		exp.find({ "first_name": {$gt:"J"}}).sort({"address.city":-1})
+		 
+		 
+		 Java
+		db.posts.createIndex({date:-1})
+		db.posts.createIndex({tags:1})
+		db.posts.createIndex({permalink:1})
+		
+		db.sysprofile.find({'op':'query',ns:'school2.students'}).sort({millis:-1 } ).limit(2).pretty()
