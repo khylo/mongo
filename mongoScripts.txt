@@ -37,6 +37,11 @@ CopyCollection
 		
 		db.collection.help().. show all commands
 
+
+		show useres   
+			use admin
+			db.system.users.find()
+		
 find
 *Mongod will by default log slow queries. So shoudl set some automation up to find these in the logs and notify.*
 
@@ -134,6 +139,7 @@ find
 				but we can't lookup DOB o9r firstname alone. 
 				
 			Adding indexes makes writes slower. Pattern. Before large insert have no indexes. Add indexes after large write.
+			
 
 		MultiKey Index (e.g. on array)
 			Can't have index on more than 1 field is array
@@ -421,6 +427,16 @@ Replication and Sharding
 				Arbiter (used only for voting .. e.g to maintain majority)
 				Delayed / Regular .. can't vote. can't be pimary node  P=0
 				Hidden .. cant be primary. Can Vote.. . Used to analytics      P=0
+				`
+	Shrading
+		Shard a collection accross shards
+		Chunks are mapped to shards
+		Config server maps chunks to shards. mongoS checks against config servver to find the shard
+		
+		Chunks are Range based or hash based
+		
+		every doc MUST contain shard Key, otherwise wont know which server to put doc
+		
 				
 ***
 Performance	 .. https://university.mongodb.com/mercury/M201
@@ -489,6 +505,20 @@ Performance	 .. https://university.mongodb.com/mercury/M201
 		
 		e.g.g {w:"majority", j:"true"}
 		
+	
+Read Preferences
+		Reads and writes goto primary by defalt. But can change
+		
+		Reads can be set to read from secondary using read prefernce
+		
+		primary
+		primary preferred
+		secondary
+		secondary preferred
+		nearest
+		
+		if readong from secondary then eventually consistent	
+		
 		
 	Collations  See performance\collations.js   
 		Language Specific rules for text searches
@@ -520,6 +550,62 @@ Profiling	have mongod log to db.system.profile
 	
 	Can then query profile table 
 	 db.system.profile.find( { millis : { $gt:1000 } } ).sort( { ts : -1 } )
+	 
+Clustering
+	Replication
+		2 types Binary vs statemnt based
+		
+		Binary keeps binary copy of writes in binary log
+			Pro, consise fast. less data
+			Cons requires strict allignment of OS's, hardware arch, and DB versions
+			
+		Statement based	.. keeps statemnts in statement log
+			Not stement log adopted slightly. e.g. increment will change to write exact value in statemnet log
+			That menas we can rerunlogs multiple times without fear of corruption. (Idempotency)
+			Send wr
+			
+	Replica set 
+	 1 primary.. n-1 secondarys.  and or Arbiter.. used in voting. cannot become primary as it holds no data
+	 Secondars updates asyncronous Pv1 (raft protocol) Default, Pv0
+	 Ope log sync'ed using idempotent statemnt based replication
+	 
+	 Can have up to 50 members in replica set (e.g. for geographic distribtion).. only 7 votering members (only 7 can be primary)
+	 
+	 cAN HAVE DELAYED SECONDARY NODES E..G 2 HOURS.
+		this means that if ther is a probem we have 2 hours to restore from delayed node before data gets propogated there
+	 
+	 Recommend NOT using Arbiters	
+	 
+	 HW
+		sudo mkdir -p /var/mongodb/pki
+		sudo chown vagrant:vagrant -R /var/mongodb
+		openssl rand -base64 741 > /var/mongodb/pki/m103-keyfile
+		chmod 600 /var/mongodb/pki/m103-
+		mkdir /var/mongodb/db/1 /var/mongodb/db/2 /var/mongodb/db/3
+		
+		Setup users
+		mongo admin --host localhost:27001 --eval '
+		  db.createUser({
+			user: "m103-admin",
+			pwd: "m103-pass",
+			roles: [
+			  {role: "root", db: "admin"}
+			]
+		  })'
+		  
+		  mongo admin --host localhost:27001 --eval 'db.createUser({user: "m103-admin",	pwd: "m103-pass",	roles: [ {role: "root", db: "admin"}] })'
+		
+e.g. setup		
+		config filename	mongod-repl-1.conf	mongod-repl-2.conf	mongod-repl-3.conf
+		port	27001	27002	27003
+		dbPath	/var/mongodb/db/1	/var/mongodb/db/2	/var/mongodb/db/3
+		logPath	/var/mongodb/db/mongod1.log	/var/mongodb/db/mongod2.log	/var/mongodb/db/mongod3.log
+		replSet	m103-repl	m103-repl	m103-repl
+		keyFile	/var/mongodb/pki/m103-keyfile	/var/mongodb/pki/m103-keyfile	/var/mongodb/pki/m103-keyfile
+		bindIP	localhost,192.168.103.100	localhost,192.168.103.100	localhost,192.168.103.100
+		
+		rs.initiate()
+		rs.status()
 	
 	Homework
 		Lab 2.1 got wrong. 
@@ -536,12 +622,18 @@ Profiling	have mongod log to db.system.profile
 		 
 		 Java
 		db.posts.createIndex({date:-1})
-		db.posts.createIndex({tags:1})
+		db.posts.createIndex({tags:1,date:-1})
 		db.posts.createIndex({permalink:1})
 		
 		db.sysprofile.find({'op':'query',ns:'school2.students'}).sort({millis:-1 } ).limit(2).pretty()
 		
 		
+	Sharding	
+	 How horizontal scaling wokrs.. breaks up collection to logical hosts (RS).. shard Key used to split
+	 How horizontal scaling wokrs.. breaks up collection to logical hosts (RS).. shard Key used to split
+	 each shard is potentially s replicaSet
+	 use mongos for sharding
+	 
 Examples
 
 stop mongod
@@ -577,3 +669,4 @@ ss --authenticationDatabase=admin dataset/products.json
 
 
 mongo --eval "load('products__m101.js')"		
+=======
