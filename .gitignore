@@ -24,3 +24,4 @@ hs_err_pid*
 /aggregation/zips.json
 /aggregation/posts.json
 /restaurants.json
+/performance/restaurants.json

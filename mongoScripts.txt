@@ -368,6 +368,10 @@ Aggregation
 		{$sort:     {     population:-1     }    },
 	])
 	
+	# Can connect to different servers in cluster from within mongo shell e.g. gconnect to secondary
+	db = connect("127.0.0.1:27013/m201")
+	sb.setSlaveOk()
+	
 	cd aggregation/
 	type "first_phase3_m101p.js" | mongo
 		
@@ -418,6 +422,29 @@ Replication and Sharding
 				
 	Replication
 		used for availibility 
+		
+		use rs commands
+		rs.status()
+		rs.initialise()
+		rs.conf()
+		rs.help()
+		
+		Op log.
+			Primary writes to oplog (idempotent meaning can rerun tasks without fear)
+			oplog gets asynchronously replicated to secondarys
+			oplog uses capped collection.. A fixed-sized collection that automatically overwrites its oldest entries when it reaches its maximum size. The MongoDB oplog that is used in replication is a capped collection.
+			
+			to see opLog
+			
+			use local;
+			db.oplog.rs.find().pretty()
+			
+			op .. i = insert,  c = create (collection), etc
+			Db keeps track of last time it read and updated from opLog
+				rs.status(0 shows optIme, and optimeDate so DB knows what last update was)
+				
+			If oplog rolls over (past cap) before secondary has written .. Can still do replication but much slower.. Needs to copy entire data set from new primary
+			
 		Replica Set  ... minimum 3 nodes to ensure election of new primary and to have redundancy
 			Always write to primary
 			
@@ -427,15 +454,136 @@ Replication and Sharding
 				Arbiter (used only for voting .. e.g to maintain majority)
 				Delayed / Regular .. can't vote. can't be pimary node  P=0
 				Hidden .. cant be primary. Can Vote.. . Used to analytics      P=0
+				
+		
+		rs.initiate(config);
+		rs.status();
+		
+		** If you want to read on secondary
+		rs.slaveOk()
 				`
 	Shrading
-		Shard a collection accross shards
+		(**Pattern, create compound shard Key with _Id appended to normally slected key.)
+		Shard a collection accross shards. 
+			used for horizontal scaling, but aloso can be used to increase performance, allowing parallelization of reads/ writes
 		Chunks are mapped to shards
-		Config server maps chunks to shards. mongoS checks against config servver to find the shard
+		Config server maps chunks to shards. mongoS checks against config servver to find the shard. Recommend 3 config servers for prod system (seems to be shard size independent)
 		
 		Chunks are Range based or hash based
+			As keys are added to chunks, chunks can be split, but only if range allows. Can end up with jumbo chunks if we can split chunk key smaller. In this case creating compound shard Key would help (e.g. appending _id to key)
+			
+		Ordered bulk writes slow down a lot in shard cluster (executed serially)
+		Un Ordered bulk writes speed up a lot in shard cluster (executed in parallel)
 		
-		every doc MUST contain shard Key, otherwise wont know which server to put doc
+		Examples
+			sh.shardCollection('m210.peopl', {last_name:1})
+			// divides range into chunks
+			// chunks max size 64MB
+		
+		every doc MUST contain shard Key, otherwise wont know which server to put doc. Shard key is  indexed automatically once shard is created,. but does not have to be unique
+			shardKey is immutable
+			shardKey is not unique
+			must have an index starting with shardKey.. Could be more than just shardKey (e.g.g student_id plus class)
+				Can't be multiKey Index
+			Update   ..must specify shardKey or multi .. 
+			No shardKey in query means all RS in shard get query.
+			No unique Key unless starts with shardKey
+			
+		Types of read..
+			Scatterd Gather queries.. Talks to all shard nodes.. Not good
+				results in local sort / skip/ limit etc in each shard before final sort/ skip / limit in primary node of cluster
+			Routed Quesries
+		
+		Normally run mongos on App server since it is lightweight.
+			Normally have multiple mongos on app server for redundancy
+			Driver handles connecting to appropriuate mongos if mongos's go down
+			
+		Choosing shard key	
+			`Sufficient Cardinality (enough values to spread out accross shards)
+			Frequency .. want even distribtion of values
+			Rate of Change
+			Be careful of always increasing values (e.g. bsonId).. When you define shard values might use max value.. But after time all values will tend to always hit last shard since they go aboove highest
+			Make compound key to avoid jumbo chunks
+			Can have monotonicall increasing or decreasing id in compund shard key as long as it is not first value.. 
+				
+		Write Consistency
+			Writes only occur to Primary if primary is down then no writes until new primary is elected) (Normally failover approx 3 secs)
+			Read can occur from primary and secondary, BUT if you want read after write consiistency you must read from primary.
+			
+			Consider write concerns with sharding
+				w="majority" means majority of RS's in possibly each shard need to respond to mongos
+				
+		Read From secondary (main use is high availability, not perf)
+			Off by default				
+				readPref can be Primary, primaryPreferred, Secondary, secondaryPreferred, Nearest
+				e.g.g db.col.find().readPref("nearest")
+			Can lead to stale data been read
+			
+			Good for:
+				Analystics reporting jobs, which might have heavy reads and may effect perf
+				Keep app data reading from primary
+				Local reads in geographically distributed datasets e.g. 1 primary, and 1 secondary in locale1, 1 secondary in locale 2. 
+				
+			Bad for
+				In general, bad idea
+				Proviuding extra capacity for reads... Shoudl use sharding for this  Secondarys are getting as much write information as Primary due to replication, so reading from secondary does not help.
+				*Never* read from secondary in sharded cluster. You should never read from a secondary on a sharded cluster. When you do this you might get stale results with missing or duplicated data because of incomplete or terminated chunk migrations. Shoudl always go through mongos not directly to shard
+				
+		Can have specific indexes on secondary nodes (e..g ) if used specificalyl for analytics.
+			Need to make sure this node does not become primary (priority =0, hidden node, or delayed secondary)
+			
+			
+		Creating Replica Sets (on one server not normal)
+			mkdir -p /data/rs1 /data/rs2 /data/rs3
+			mongod --replSet m101 --logpath "1.log" --dbpath /data/rs1 --port 27017 --oplogSize 64 --fork --smallfiles
+			mongod --replSet m101 --logpath "2.log" --dbpath /data/rs2 --port 27018 --oplogSize 64 --smallfiles --fork
+			mongod --replSet m101 --logpath "3.log" --dbpath /data/rs3 --port 27019 --oplogSize 64 --smallfiles --fork
+			
+			** Login to mongo shell  (NOT on 27017.. Can't initialise on host that can't become primary, which in this case 27017 can't)
+			config = { _id: "m101", members:[
+					  { _id : 0, host : "localhost:27017"},
+					  { _id : 1, host : "localhost:27018"},
+					  { _id : 2, host : "localhost:27019"} ]
+			};
+			
+			e.g. see 
+			REM  connect to one server and initiate the set
+			mongo --port 37017 --eval "config = { _id: 's0', members:[{ _id : 0, host : 'localhost:37017' },{ _id : 1, host : 'localhost:37018' },{ _id : 2, host : 'localhost:37019' }]};rs.initiate(config)"
+			
+			# set up config servers (using mongos)
+			# Start mongos and tell it about config servers
+			start mongos  --configdb csReplSet/localhost:57040,localhost:57041,localhost:57042
+			REM  add shards and enable sharding on the test db
+			mongo --eval "db=db.getSisterDB('admin');db.runCommand( { addshard : 's0/'+'localhost:37017' } );db.runCommand( { addshard : 's1/'+'localhost:47017' } );db.runCommand( { addshard : 's2/'+'localhost:57017' } )"
+			mongo --eval "db=db.getSisterDB('admin');db.runCommand({enableSharding: 'school'});db.runCommand({shardCollection: 'school.students', key: {student_id:1}})"
+
+
+				sh.status()
+
+			
+		To createIndex from Secondary (usefiul for analytics / reporting/ text search). Should not become primary
+			Bring down cluster
+			Bring up secondary in standalone mode (same dbpath)
+			Then run db.retaurants.createIndex({"cusine":1})  # Now this index wont get propogated. Therefore need to make sure this secondary does not become primary.. 
+		
+		Aggregation		
+			When aggregating on shard server will determine if it can optimise to a single shard or if it has to query all shards. 
+			If more than one shard involved then there also needs to be  final collection, and ordering of results. Normally this occurs on a random shard node, but if some commands used, e.g. then it will always occur on primary shard which can increase workload on that shard node.
+				$out
+				$facet
+				$lookup
+				$graphLookup
+			
+			Aggregation optimizations
+				matches will be moved before sorts, in order to reduce data accross nodes
+				limits and skips are automatically ordered so that limit is first, skip is second.. (combines so that limit may chnage in order to keep symantics correct)
+			
+		
+		Failover and ROLLBACK
+			if primary goes down. When it comes back up it will cehck off current Primary for writes.
+			if original primary had writes that new primary never got, then rollback writes that original had. (Produces rollback file that can be applied manually)
+			
+			If we set write concern to 'majority' then this shoudln't happen (might be edge cases)
 		
 				
 ***
@@ -499,11 +647,12 @@ Performance	 .. https://university.mongodb.com/mercury/M201
 		db.people.find({'ssn':"720-38-5636"}).explain("executionStats")
 		
 	WriteConcerns
-		w: 1
-		j: false  //journal
-		wtimeout: 5 // ms
+		Can set these on Connection.. Set them on collection in driver... (similar) .. can set them in the replicaSet (by DBA). Probably DBa preferred
+		w: 1 .. majority number of nodes to ackknowledge write
+		j: false  //wait for journal to be written to On Primary
+		wtimeout: 5 // ms   how long to wait for acknowledgement
 		
-		e.g.g {w:"majority", j:"true"}
+		e.g.g {w:"majority", j:"true"}  w = majority shoudl remove most rollbacks.. Shoudl be 2ndary with writes acknowledged shoudl become primary in failover
 		
 	
 Read Preferences
