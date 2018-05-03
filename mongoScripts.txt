@@ -4,6 +4,11 @@ mongo "mongodb://cluster0-shard-00-00-jxeqq.mongodb.net:27017,cluster0-shard-00-
 
 mongorestore --drop --host $hostname --port 37017 --authenticationDatabase $authdb --ssl --username $username --gzip --password $password --dir mongodump-people-signup-score
 
+To Run projects
+	mvn compile exec:java -Dexec.mainClass=course.homework.MongoDBSparkFreemarkerStyle
+	#final project
+	mvn compile exec:java -Dexec.mainClass=course.BlogController
+
 Local Import
 	mongoimport --db capc --collection RegisteredUser --drop --file ./jobs/data/users.json --jsonArray
 	
@@ -221,6 +226,7 @@ update.
 	> db.movieDetails.updateOne({title:"MyTestFilm"},{$set:{"title" :"MyTestFilm", "year" : 1982, "rated" : "PG", "runtime" : 113, "countries" : [ "USA" ], "genres" : [ "Action", "Adventure", "Drama" ], "director" : "Nicholas Meyer", "writers" : [ "Gene Roddenberry", "Harve Bennett", "Jack B. Sowards", "Jack B. Sowards" ], "actors" : [ "William Shatner", "Leonard Nimoy", "DeForest Kelley", "James Doohan" ], "plot" : "With the assistance of the Enterprise crew, Admiral Kirk must stop an old nemesis, Khan Noonien Singh, from using the life-generating Genesis Device as the ultimate weapon.","imdb" : { "id" : "tt0084726", "rating" : 7.7, "votes" : 86687 }, "metacritic" : 71, "awards" : { "wins" : 2, "nominations" : 9, "text" : "2 wins & 9 nominations." }, "type" : "movie" }},{upsert:true})
 	
 	$push - adds items in the order in which they were received. Also you can add same items several times
+		db.my.updateOne({body:"Hi"}, {$push:{"To":"MeToo"}})
 	$addToSet - adds just unique items, but order of items is not guarantied
 	
 Replace
@@ -819,3 +825,56 @@ ss --authenticationDatabase=admin dataset/products.json
 
 mongo --eval "load('products__m101.js')"		
 =======
+
+
+
+M101 Exam
+
+Q2 .Enron most emails from to. (Note seem to need to keep _id in at start to keep individual emails seperate)
+
+	to Count add this stage
+	,{$group:{_id:null,"count":{$sum:1}}}
+
+	First get list
+	db.messages.aggregate([{$project:{"From":"$headers.From", "To":"$headers.To"}}])
+	
+	Total emails = db.messages.aggregate([{$group:{_id:null,"count":{$sum:1}}}]) = 120477
+	Project emails and count .. db.messages.aggregate([{$project:{"From":"$headers.From", "To":"$headers.To"}},{$group:{_id:null,"count":{$sum:1}}}]) = 120477
+	Unwind To field	... 928277
+		db.messages.aggregate([{$project:{"From":"$headers.From", "To":"$headers.To"}},{$unwind:"$To"},{$group:{_id:null,"count":{$sum:1}}}])
+	Create unique array of To by addtoSet 115367 ? Why is this less than original?
+		db.messages.aggregate([{$project:{"From":"$headers.From", "To":"$headers.To"}},{$unwind:"$To"},{$group:{"_id":{"id":"$_id", "from":"$From"},"To":{$addToSet:"$To"}}}, {$group:{_id:null,"count":{$sum:1}}}])
+	Unwind again but now without duplicates  915895
+		db.messages.aggregate([{$project:{"From":"$headers.From", "To":"$headers.To"}},{$unwind:"$To"},{$group:{"_id":{"id":"$_id", "from":"$From"},"To":{$addToSet:"$To"}}}, {$unwind:"$To"}, {$group:{_id:null,"count":{$sum:1}}}])		
+	Finally group by From  and To (time to lose message ID)
+		> db.messages.aggregate([{$project:{"From":"$headers.From", "To":"$headers.To"}},{$unwind:"$To"},{$group:{"_id":{"id":"$_id", "from":"$From"},"To":{$addToSet:"$To"}}}, {$unwind:"$To"}, {$group:{"_id":{"From":"$_id.from", "To":"$To"}, "Total":{$sum:1}}}, {$sort:{Total:-1}}])
+		{ "_id" : { "From" : "susan.mara@enron.com", "To" : "jeff.dasovich@enron.com" }, "Total" : 750 }
+		{ "_id" : { "From" : "soblander@carrfut.com", "To" : "soblander@carrfut.com" }, "Total" : 679 }
+		{ "_id" : { "From" : "susan.mara@enron.com", "To" : "james.steffes@enron.com" }, "Total" : 646 }
+		{ "_id" : { "From" : "susan.mara@enron.com", "To" : "richard.shapiro@enron.com" }, "Total" : 616 }
+		{ "_id" : { "From" : "evelyn.metoyer@enron.com", "To" : "kate.symes@enron.com" }, "Total" : 567 }
+		{ "_id" : { "From" : "susan.mara@enron.com", "To" : "karen.denne@enron.com" }, "Total" : 552 }
+		{ "_id" : { "From" : "susan.mara@enron.com", "To" : "alan.comnes@enron.com" }, "Total" : 550 }
+		{ "_id" : { "From" : "susan.mara@enron.com", "To" : "paul.kaufman@enron.com" }, "Total" : 506 }
+		{ "_id" : { "From" : "susan.mara@enron.com", "To" : "harry.kingerski@enron.com" }, "Total" : 489 }
+		{ "_id" : { "From" : "sgovenar@govadv.com", "To" : "paul.kaufman@enron.com" }, "Total" : 488 }
+		{ "_id" : { "From" : "sgovenar@govadv.com", "To" : "jdasovic@enron.com" }, "Total" : 485 }
+		{ "_id" : { "From" : "sgovenar@govadv.com", "To" : "harry.kingerski@enron.com" }, "Total" : 481 }
+		{ "_id" : { "From" : "sgovenar@govadv.com", "To" : "smara@enron.com" }, "Total" : 467 }
+		{ "_id" : { "From" : "sgovenar@govadv.com", "To" : "mday@gmssr.com" }, "Total" : 464 }
+		{ "_id" : { "From" : "susan.mara@enron.com", "To" : "sandra.mccubbin@enron.com" }, "Total" : 464 }
+		{ "_id" : { "From" : "sgovenar@govadv.com", "To" : "steven.j.kean@enron.com" }, "Total" : 460 }
+		{ "_id" : { "From" : "sgovenar@govadv.com", "To" : "rshapiro@enron.com" }, "Total" : 457 }
+		{ "_id" : { "From" : "sgovenar@govadv.com", "To" : "bhansen@lhom.com" }, "Total" : 457 }
+		{ "_id" : { "From" : "sgovenar@govadv.com", "To" : "james.d.steffes@enron.com" }, "Total" : 454 }
+		{ "_id" : { "From" : "sgovenar@govadv.com", "To" : "acomnes@enron.com" }, "Total" : 452 }
+		
+Q3
+	Check messagte
+		db.messages.find({"headers.Message-ID":"<8147308.1075851042335.JavaMail.evans@thyme>"})
+		db.messages.find({"headers.Message-ID":"<8147308.1075851042335.JavaMail.evans@thyme>"},{"headers.To":1})
+	Verify number of entries in To field  40
+		db.messages.aggregate([{$match:{"headers.Message-ID":"<8147308.1075851042335.JavaMail.evans@thyme>"}},{$project: { count: { $size:"$headers.To" }}}])
+	Update
+		db.messages.updateOne({"headers.Message-ID":"<8147308.1075851042335.JavaMail.evans@thyme>"},{$push:{"headers.To":"mrpotatohead@mongodb.com"}})
+	Verify number of entries in To field  41
